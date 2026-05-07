@@ -22,8 +22,9 @@ def load_caption_model():
 
 @st.cache_resource
 def load_story_model():
-    """Load the Hugging Face text generation model."""
-    return pipeline("text-generation", model="pranavpsv/genre-story-generator-v2")
+    """Load a lighter, stable text generation model for kids stories."""
+    # 🔴 替换为更轻量、更稳定、适合儿童的模型
+    return pipeline("text-generation", model="distilgpt2")
 
 # ==========================================
 # Phase 1: Image Processing & Captioning
@@ -55,18 +56,26 @@ def generate_kid_story(caption):
     (Requirement 2: Story Generation)
     """
     story_generator = load_story_model()
-    # Add a magical prompt to guide the model for kids
-    prompt = f"Once upon a time, in a magical land, there was a {caption}. "
     
-    # Generate story with length constraints (50-100 words)
+    # 🔴 优化提示词，确保故事简单、可爱、长度标准
+    prompt = f"""
+    Write a short, happy, simple kids story (50-100 words) for children aged 3-10.
+    The story is about: {caption}.
+    Once upon a time,"""
+    
+    # Generate story with strict length constraints
     story_result = story_generator(
         prompt, 
-        max_new_tokens=80,   # Limit length to match 50-100 words requirement
-        min_new_tokens=40, 
-        do_sample=True, 
-        temperature=0.7      # Make it creative
+        max_new_tokens=90,
+        min_new_tokens=45,
+        do_sample=True,
+        temperature=0.8,
+        top_p=0.9
     )
     story_text = story_result[0]['generated_text']
+    
+    # 简单清理，确保句子完整
+    story_text = story_text.split('\n')[0].strip()
     return story_text
 
 # ==========================================
@@ -77,28 +86,22 @@ def text_to_speech(story_text):
     Convert the generated story text into an audio file using gTTS.
     (Requirement 3: Text-to-Speech Conversion)
     """
-    # Using gTTS as allowed by guidelines for better cloud stability
     tts = gTTS(text=story_text, lang='en', slow=False)
-    
-    # Save audio to a bytes buffer instead of a local file
     audio_buffer = io.BytesIO()
     tts.write_to_fp(audio_buffer)
     audio_buffer.seek(0)
-    
     return audio_buffer
 
 # ==========================================
 # Main UI & App Execution
 # ==========================================
 def main():
-    # 1. Page Configuration
     st.set_page_config(
         page_title="Magic Storybook", 
         page_icon="🧚‍♀️", 
         layout="wide"
     )
 
-    # 2. Kid-friendly UI Header
     st.title("🧚‍♀️ The Magic Storybook 🦄")
     st.markdown("""
         **Welcome, little adventurer!** 🌟 
@@ -106,20 +109,16 @@ def main():
     """)
     st.divider()
 
-    # 3. Sidebar for Instructions
     with st.sidebar:
         st.header("🛠️ How to Play?")
         st.write("1️⃣ Upload a fun picture.")
         st.write("2️⃣ Wait for the magic to happen.")
         st.write("3️⃣ Read and listen to your story!")
-        st.image("https://cdn-icons-png.flaticon.com/512/3069/3069172.png", width=150) # Cute decorative image
+        st.image("https://cdn-icons-png.flaticon.com/512/3069/3069172.png", width=150)
 
-    # 4. Image Upload Widget
     uploaded_file = st.file_uploader("🖼️ Upload your picture here (JPG or PNG):", type=["jpg", "jpeg", "png"])
 
-    # 5. Process Flow
     if uploaded_file is not None:
-        # Layout: Left column for image, Right column for story & audio
         col1, col2 = st.columns([1, 1])
 
         with col1:
@@ -130,25 +129,19 @@ def main():
         with col2:
             st.subheader("Your Story 📖")
             
-            # Step 1: Captioning (with spinner for UI)
-            with st.spinner("🔍 The Magic Eye is looking at your picture..."):
+            with st.spinner("🔍 Analyzing your picture..."):
                 caption = generate_image_caption(image)
-            st.info(f"**Magic sees:** {caption.capitalize()}")
+            st.info(f"**I see:** {caption.capitalize()}")
 
-            # Step 2: Story Generation
-            with st.spinner("✍️ The Magic Pen is writing your story..."):
+            with st.spinner("✍️ Writing your magic story..."):
                 story = generate_kid_story(caption)
             st.success(f"**{story}**")
 
-            # Step 3: Audio Generation
-            with st.spinner("🗣️ The Storyteller is preparing to read..."):
+            with st.spinner("🗣️ Preparing audio..."):
                 audio_bytes = text_to_speech(story)
             
-            # Audio Player UI
             st.markdown("### 🎧 Listen to the Story!")
             st.audio(audio_bytes, format='audio/mp3')
-
-            # Celebration UI element
             st.balloons()
 
 if __name__ == '__main__':
