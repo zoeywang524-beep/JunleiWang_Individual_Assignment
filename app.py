@@ -1,9 +1,4 @@
-没问题！这是整合了所有优化方案的完整版 app.py 代码。
 
-这份代码已经去掉了容易报错的 image-to-text pipeline，改用官方最底层、最稳健的 BlipProcessor 方式，同时保留了所有的模块化设计、UI 美化和内存优化，完全符合老师的要求，可以直接用于交作业。
-
-🌟 最终完整版 app.py
-python
 # Program title: Magic Storybook App
 # Description: A storytelling application using Hugging Face models, designed for 3-10-year-old kids.
 
