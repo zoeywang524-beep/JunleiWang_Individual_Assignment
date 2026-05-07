@@ -1,8 +1,14 @@
+没问题！这是整合了所有优化方案的完整版 app.py 代码。
+
+这份代码已经去掉了容易报错的 image-to-text pipeline，改用官方最底层、最稳健的 BlipProcessor 方式，同时保留了所有的模块化设计、UI 美化和内存优化，完全符合老师的要求，可以直接用于交作业。
+
+🌟 最终完整版 app.py
+python
 # Program title: Magic Storybook App
-# Description: A storytelling application using Hugging Face pipelines, designed for 3-10-year-old kids.
+# Description: A storytelling application using Hugging Face models, designed for 3-10-year-old kids.
 
 import streamlit as st
-from transformers import pipeline
+from transformers import pipeline, BlipProcessor, BlipForConditionalGeneration
 from PIL import Image
 from gtts import gTTS
 import io
@@ -12,8 +18,13 @@ import io
 # ==========================================
 @st.cache_resource
 def load_caption_model():
-    """Load the Hugging Face image captioning model."""
-    return pipeline("image-to-text", model="Salesforce/blip-image-captioning-base")
+    """
+    Load the Hugging Face image captioning model.
+    Using explicit processor and model to avoid pipeline compatibility errors.
+    """
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+    return processor, model
 
 @st.cache_resource
 def load_story_model():
@@ -28,10 +39,17 @@ def generate_image_caption(image):
     Process the uploaded image and generate a text caption.
     (Requirement 1: Image Processing & Captioning)
     """
-    captioner = load_caption_model()
+    processor, model = load_caption_model()
+    
+    # Convert image to RGB to prevent tensor errors with PNG alpha channels
+    if image.mode != "RGB":
+        image = image.convert(mode="RGB")
+        
     # Generate caption
-    result = captioner(image)
-    caption = result[0]["generated_text"]
+    inputs = processor(image, return_tensors="pt")
+    out = model.generate(**inputs, max_new_tokens=50)
+    caption = processor.decode(out[0], skip_special_tokens=True)
+    
     return caption
 
 # ==========================================
@@ -113,7 +131,6 @@ def main():
         with col1:
             st.subheader("Your Magic Picture 📸")
             image = Image.open(uploaded_file)
-            # Display rounded corners using standard Streamlit
             st.image(image, use_column_width=True)
 
         with col2:
