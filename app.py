@@ -1,12 +1,3 @@
-app
-"""
-Program Title: Magic Storybook App
-Description: A storytelling web application designed for 3-10-year-old kids.
-It processes a user-uploaded image, generates a caption, expands it into a
-complete bedtime story (50-100 words) tightly tied to the image content,
-and converts the story to audio.
-"""
-
 import io
 import streamlit as st
 from PIL import Image
