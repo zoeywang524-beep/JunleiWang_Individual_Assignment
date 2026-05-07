@@ -1,3 +1,4 @@
+app
 """
 Program Title: Magic Storybook App
 Description: A storytelling web application designed for 3-10-year-old kids.
@@ -98,11 +99,11 @@ def generate_kid_story(caption: str) -> str:
     """
     story_generator = load_story_model()
 
-    # --- Anchor the prompt firmly to image content ---
-    # The prompt explicitly names the scene/subject from the caption so the
-    # model cannot drift into a generic, unrelated fairy tale.
+    # Use the correct prompt format required by pranavpsv/genre-story-generator-v2:
+    # Format: <BOS> <genre> <opening sentence>
+    # This anchors the story directly to the image caption so it stays relevant.
     prompt = (
-        f"<BOS> <CHILDREN> Once upon a time, {caption}. "
+        f"<BOS> <drama> Once upon a time, {caption}. "
         f"This is a magical story about {caption}. "
     )
 
@@ -119,20 +120,17 @@ def generate_kid_story(caption: str) -> str:
     raw_story = story_result[0]["generated_text"]
 
     # --- Post-processing: strip the injected prompt prefix ---
-    # Use slicing instead of str.replace() to safely handle special characters
     if raw_story.startswith(prompt):
         story_text = raw_story[len(prompt):]
     else:
-        # Fallback: strip up to the first sentence boundary after the prompt
         story_text = raw_story.replace(prompt, "", 1)
 
-    # Remove any leftover model-specific tokens (e.g. <BOS>, <CHILDREN>)
-    for token in ["<BOS>", "<CHILDREN>", "<EOS>"]:
+    # Remove any leftover model-specific tokens (e.g. <BOS>, <drama>)
+    for token in ["<BOS>", "<drama>", "<EOS>"]:
         story_text = story_text.replace(token, "")
     story_text = story_text.strip()
 
     # --- Sentence-level reconstruction to enforce 50-100 word limit ---
-    # Normalize sentence endings and split
     sentences = story_text.replace("!", ".").replace("?", ".").split(".")
 
     final_story = ""
@@ -157,9 +155,7 @@ def generate_kid_story(caption: str) -> str:
             break
 
     # --- Fallback: if post-processing yields too short a story ---
-    # Use the minimum 50-word threshold (not 30) to comply with requirements
     if len(final_story.split()) < 50:
-        # Trim raw story to approximately 90 words as a best-effort fallback
         words = story_text.split()
         fallback = " ".join(words[:90])
         if not fallback.endswith((".", "!", "?")):
@@ -185,6 +181,7 @@ def text_to_speech(story_text: str) -> io.BytesIO:
     Returns:
         A BytesIO buffer containing the MP3 audio data.
     """
+    # gTTS converts text to speech via Google TTS API
     tts = gTTS(text=story_text, lang="en", slow=False)
 
     # Write audio to an in-memory buffer to avoid disk I/O on cloud deployments
@@ -203,7 +200,7 @@ def main():
     """
     Main entry point for the Magic Storybook Streamlit application.
     Orchestrates the UI layout and the three-phase pipeline:
-    Image → Caption → Story → Audio.
+    Image -> Caption -> Story -> Audio.
     """
     # --- Page configuration ---
     st.set_page_config(
@@ -243,7 +240,7 @@ def main():
             st.subheader("Your Magic Picture 📸")
             try:
                 image = Image.open(uploaded_file)
-                st.image(image, use_container_width=True)  # Updated: use_column_width is deprecated
+                st.image(image, use_container_width=True)
             except Exception:
                 st.error("⚠️ Error loading image. Please upload a valid JPG or PNG file.")
                 return
@@ -252,7 +249,7 @@ def main():
         with col2:
             st.subheader("Your Story 📖")
 
-            # --- Phase 1: Image → Caption ---
+            # --- Phase 1: Image -> Caption ---
             with st.spinner("🔍 The Magic Eye is looking at your picture..."):
                 try:
                     caption = generate_image_caption(image)
@@ -261,7 +258,7 @@ def main():
                     return
             st.info(f"**✨ Magic sees:** {caption.capitalize()}")
 
-            # --- Phase 2: Caption → Story ---
+            # --- Phase 2: Caption -> Story ---
             with st.spinner("✍️ The Magic Pen is writing your story..."):
                 try:
                     story = generate_kid_story(caption)
@@ -279,7 +276,7 @@ def main():
             st.success(f"**{story}**")
             st.caption(f"*(Story length: {word_count} words)*")
 
-            # --- Phase 3: Story → Audio ---
+            # --- Phase 3: Story -> Audio ---
             with st.spinner("🗣️ The Storyteller is preparing to read..."):
                 try:
                     audio_bytes = text_to_speech(story)
