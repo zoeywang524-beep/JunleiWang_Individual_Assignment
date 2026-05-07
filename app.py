@@ -1,4 +1,3 @@
-
 # Program title: Magic Storybook App
 # Description: A storytelling application using Hugging Face models, designed for 3-10-year-old kids.
 
