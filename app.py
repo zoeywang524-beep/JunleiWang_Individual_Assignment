@@ -1,207 +1,88 @@
-"""
-Program Title: Magic Storybook App
-Description: A storytelling web application designed for 3-10-year-old kids.
-It processes a user-uploaded image, generates a caption, expands it into a
-complete bedtime story (50-100 words), and converts the story to audio.
-"""
+# Program title: Storytelling App
 
-import io
+# Import part
 import streamlit as st
-from PIL import Image
-from transformers import pipeline, BlipProcessor, BlipForConditionalGeneration
-from gtts import gTTS
+from transformers import pipeline
+import numpy as np # 用于处理音频数据维度
 
-# ==========================================
-# Phase 0: Model Loading & Caching
-# ==========================================
+# Function part
 @st.cache_resource
-def load_caption_model():
-    """
-    Load the Hugging Face image captioning model (Salesforce BLIP).
-    Uses explicit Processor and Model to avoid pipeline KeyError issues.
-    """
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-    return processor, model
+def get_img2text_pipeline():
+    return pipeline("image-text-to-text", model="Salesforce/blip-image-captioning-base")
 
 @st.cache_resource
-def load_story_model():
-    """
-    Load the Hugging Face text generation model.
-    """
+def get_story_pipeline():
     return pipeline("text-generation", model="pranavpsv/genre-story-generator-v2")
 
-# ==========================================
-# Phase 1: Image Processing & Captioning
-# ==========================================
-def generate_image_caption(image: Image.Image) -> str:
-    """
-    Process the uploaded image and generate a text caption.
-    (Requirement 1: Image Processing & Captioning)
-    """
-    processor, model = load_caption_model()
-    
-    # Convert image to RGB to prevent tensor errors with PNG alpha channels
-    if image.mode != "RGB":
-        image = image.convert(mode="RGB")
-        
-    # Generate caption using the BLIP model
-    inputs = processor(image, return_tensors="pt")
-    out = model.generate(**inputs, max_new_tokens=50)
-    caption = processor.decode(out[0], skip_special_tokens=True)
-    
-    return caption
+@st.cache_resource
+def get_audio_pipeline():
+    return pipeline("text-to-audio", model="Matthijs/mms-tts-eng")
 
-# ==========================================
-# Phase 2: Story Generation
-# ==========================================
-def generate_kid_story(caption: str) -> str:
-    """
-    Expand the image caption into a complete story strictly between 50-100 words.
-    (Requirement 2: Story Generation)
-    """
-    story_generator = load_story_model()
+def img2text(url):
+    image_to_text_model = get_img2text_pipeline()
+    text = image_to_text_model(url)[0]["generated_text"]
+    return text
+
+def text2story(scenario):
+    story_pipe = get_story_pipeline()
     
-    # 1. Kid-friendly prompt
-    prompt = f"Write a magical bedtime story for kids about {caption}. Once upon a time, "
+    # 修改 prompt 格式解决故事不相关的问题，并引导模型写儿童故事
+    prompt = f"<BOS> <drama> Once upon a time, there was {scenario}. "
     
-    # 2. Generate raw text (generating extra tokens to ensure we have enough material to cut)
-    story_result = story_generator(
+    # 限制字数，并生成故事
+    story_results = story_pipe(
         prompt, 
-        max_new_tokens=150,   
-        min_new_tokens=80, 
-        do_sample=True, 
-        temperature=0.7,      # Keeps the story creative but coherent
-        repetition_penalty=1.2 # Prevents the model from repeating the same sentences
+        max_new_tokens=100,  # 限制最大长度
+        min_new_tokens=50,   # 限制最小长度
+        do_sample=True
     )
-    raw_story = story_result[0]['generated_text']
+    raw_story = story_results[0]['generated_text']
     
-    # 3. Post-processing: Remove the prompt and ensure the story ends cleanly
-    story_text = raw_story.replace(f"Write a magical bedtime story for kids about {caption}. ", "")
+    # 去除特殊的起始标签
+    story = raw_story.replace("<BOS> <drama> ", "")
     
-    # Split text into independent sentences based on punctuation
-    sentences = story_text.replace('!', '.').replace('?', '.').split('.')
-    
-    final_story = ""
-    word_count = 0
-    
-    # 4. Reconstruct the story to be 50-100 words with a complete ending
-    for sentence in sentences:
-        if not sentence.strip():
-            continue
-            
-        sentence_words = len(sentence.split())
+    # 截断未说完的最后一句话，保证故事完整
+    last_punctuation = max(story.rfind('.'), story.rfind('!'), story.rfind('?'))
+    if last_punctuation != -1:
+        story = story[:last_punctuation+1]
         
-        # Stop adding sentences if it pushes the word count over 95 (leaving buffer for 100)
-        if word_count + sentence_words > 95:
-            break
-            
-        final_story += sentence.strip() + ". "
-        word_count += sentence_words
-        
-        # If we reached minimum word count (55) and sentence is complete, we can safely end
-        if word_count >= 55:
-            break
+    return story
 
-    # Fallback mechanism if the processed story is too short
-    if len(final_story.split()) < 30:
-        clean_raw = story_text.strip()
-        if not clean_raw.endswith(('.', '!', '?')):
-            clean_raw += "."
-        return clean_raw
+def text2audio(story):
+    audio_pipe = get_audio_pipeline()
+    audio_data = audio_pipe(story)
+    return audio_data
 
-    return final_story.strip()
+# Main part
+st.set_page_config(page_title="Your Image to Audio Story", page_icon="🦜")
+st.header("Turn Your Image to Audio Story")
+uploaded_file = st.file_uploader("Select an Image...")
 
-# ==========================================
-# Phase 3: Text-to-Speech Conversion
-# ==========================================
-def text_to_speech(story_text: str) -> io.BytesIO:
-    """
-    Convert the generated story text into an audio bytes buffer using gTTS.
-    (Requirement 3: Text-to-Speech Conversion)
-    """
-    # gTTS is used as it is lightweight and stable for cloud deployments
-    tts = gTTS(text=story_text, lang='en', slow=False)
-    
-    # Save audio to a bytes buffer instead of writing to the server disk
-    audio_buffer = io.BytesIO()
-    tts.write_to_fp(audio_buffer)
-    audio_buffer.seek(0)
-    
-    return audio_buffer
+if uploaded_file is not None:
+    # Save file locally (保留你的原始逻辑)
+    bytes_data = uploaded_file.getvalue()
+    with open(uploaded_file.name, "wb") as file:
+        file.write(bytes_data)
 
-# ==========================================
-# Main Application Flow
-# ==========================================
-def main():
-    # Set up Streamlit page configurations
-    st.set_page_config(
-        page_title="Magic Storybook", 
-        page_icon="🧚‍♀️", 
-        layout="wide"
-    )
+    st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
 
-    # UI Header
-    st.title("🧚‍♀️ The Magic Storybook 🦄")
-    st.markdown("""
-        **Welcome, little adventurer!** 🌟 
-        Upload a picture, and our magic AI will write a bedtime story just for you and read it aloud!
-    """)
-    st.divider()
+    # Stage 1: Image to Text
+    st.text('Processing img2text...')
+    scenario = img2text(uploaded_file.name)
+    st.write(f"**Scenario:** {scenario}")
 
-    # Sidebar UI
-    with st.sidebar:
-        st.header("🛠️ How to Play?")
-        st.write("1️⃣ Upload a fun picture.")
-        st.write("2️⃣ Wait for the magic to happen.")
-        st.write("3️⃣ Read and listen to your story!")
-        st.image("https://cdn-icons-png.flaticon.com/512/3069/3069172.png", width=150)
+    # Stage 2: Text to Story (已封装为函数)
+    st.text('Generating a story...')
+    story = text2story(scenario)
+    st.write(f"**Story:** {story}")
 
-    # Image Uploader
-    uploaded_file = st.file_uploader("🖼️ Upload your picture here (JPG or PNG):", type=["jpg", "jpeg", "png"])
+    # Stage 3: Story to Audio (已封装为函数)
+    st.text('Generating audio data...')
+    audio_data = text2audio(story)
 
-    # Core Execution
-    if uploaded_file is not None:
-        # Create a two-column layout
-        col1, col2 = st.columns([1, 1])
-
-        with col1:
-            st.subheader("Your Magic Picture 📸")
-            try:
-                image = Image.open(uploaded_file)
-                st.image(image, use_column_width=True)
-            except Exception as e:
-                st.error("Error loading image. Please upload a valid image file.")
-                return
-
-        with col2:
-            st.subheader("Your Story 📖")
-            
-            # Step 1: Image to Text (Captioning)
-            with st.spinner("🔍 The Magic Eye is looking at your picture..."):
-                caption = generate_image_caption(image)
-            st.info(f"**Magic sees:** {caption.capitalize()}")
-
-            # Step 2: Text to Story
-            with st.spinner("✍️ The Magic Pen is writing your story..."):
-                story = generate_kid_story(caption)
-            st.success(f"**{story}**")
-
-            # Word count validation display (for teacher grading purposes)
-            word_count = len(story.split())
-            st.caption(f"*(Story length: {word_count} words)*")
-
-            # Step 3: Story to Audio
-            with st.spinner("🗣️ The Storyteller is preparing to read..."):
-                audio_bytes = text_to_speech(story)
-            
-            # Render Audio Player
-            st.markdown("### 🎧 Listen to the Story!")
-            st.audio(audio_bytes, format='audio/mp3')
-
-            # Interactive UI Element
-            st.balloons()
-
-# Run the app
-if __name__ == '__main__':
-    main()
+    # Play button
+    if st.button("Play Audio"):
+        # 修正音频数据维度，避免 Streamlit 播放报错
+        audio_array = np.squeeze(audio_data["audio"])
+        sample_rate = audio_data["sampling_rate"]
+        st.audio(audio_array, sample_rate=sample_rate)
